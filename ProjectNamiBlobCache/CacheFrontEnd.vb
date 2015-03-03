@@ -157,7 +157,7 @@ Public Class CacheFrontEnd
                 End If
 
                 'Check for headers in metadata, write them if they exist
-                If Not IsNothing(ThisBlob.Metadata("Headers")) Then
+                If ThisBlob.Metadata.ContainsKey("Headers") Then
                     Dim Headers = JsonConvert.DeserializeObject(Of List(Of HeaderObject))(ThisBlob.Metadata("Headers"))
                     For Each ThisHeader As HeaderObject In Headers
                         If ThisHeader.name.ToLower = "content-type" Then
