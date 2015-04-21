@@ -253,7 +253,7 @@ Public Class CacheFrontEnd
                     For Each ThisBlob As CloudBlockBlob In ThisContainer.ListBlobs
                         ThisBlob.FetchAttributes()
                         Dim ThisModified As DateTimeOffset = ThisBlob.Properties.LastModified
-                        If ThisModified.UtcDateTime.AddHours(1) < DateTime.UtcNow Then 'Blob is old
+                        If LastModified.UtcDateTime.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration")) < DateTime.UtcNow Then 'Blob is old
                             ThisBlob.Delete()
                         End If
                     Next
