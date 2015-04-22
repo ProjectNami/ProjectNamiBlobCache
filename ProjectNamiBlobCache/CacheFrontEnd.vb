@@ -133,6 +133,20 @@ Public Class CacheFrontEnd
                     End If
                 End If
 
+                'Check Last Modified
+                If Not IsNothing(app.Request.Headers("If-Modified-Since")) Then
+                    Dim ClientLastModified As DateTime
+                    If DateTime.TryParse(app.Request.Headers("If-Modified-Since"), ClientLastModified) Then
+                        If ClientLastModified.ToUniversalTime >= LastModified.UtcDateTime Then
+                            'Set 304 status (not modified) and abort
+                            app.Context.Response.StatusCode = 304
+                            app.Context.Response.SuppressContent = True
+                            app.CompleteRequest()
+                            Exit Sub
+                        End If
+                    End If
+                End If
+
                 'If we've gotten this far, then we both have something to serve from cache and need to serve it, so get it from blob storage
                 Dim CacheString As String = ThisBlob.DownloadText()
 
@@ -169,10 +183,14 @@ Public Class CacheFrontEnd
                     Next
                 End If
 
+                'Set last-modified
+                app.Context.Response.Cache.SetLastModified(LastModified.UtcDateTime)
+
                 'Set cache control max age to match remaining cache duration
                 Dim CacheRemaining As TimeSpan = LastModified.UtcDateTime.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration")) - DateTime.UtcNow
                 app.Context.Response.Cache.SetCacheability(HttpCacheability.Public)
-                app.Context.Response.Cache.SetMaxAge(CacheRemaining)
+                'app.Context.Response.Cache.SetMaxAge(CacheRemaining)
+                app.Context.Response.Cache.SetMaxAge(New TimeSpan(0, 1, 0))
 
                 'Set 200 status, MIME type, and write the blob contents to the response
                 app.Context.Response.StatusCode = 200
@@ -189,7 +207,7 @@ Public Class CacheFrontEnd
 
                 'Notify IIS we are done and to abort further operations
                 app.CompleteRequest()
-                End If
+            End If
         End If
     End Sub
 
@@ -251,10 +269,12 @@ Public Class CacheFrontEnd
                 Dim LastModified As DateTimeOffset = LogBlob.Properties.LastModified
                 If LastModified.UtcDateTime.AddHours(1) < DateTime.UtcNow Then 'Cleanup needed
                     For Each ThisBlob As CloudBlockBlob In ThisContainer.ListBlobs
-                        ThisBlob.FetchAttributes()
-                        Dim ThisModified As DateTimeOffset = ThisBlob.Properties.LastModified
-                        If LastModified.UtcDateTime.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration")) < DateTime.UtcNow Then 'Blob is old
-                            ThisBlob.Delete()
+                        If Not ThisBlob.Name = "LastCleanup" Then
+                            ThisBlob.FetchAttributes()
+                            Dim ThisModified As DateTimeOffset = ThisBlob.Properties.LastModified
+                            If LastModified.UtcDateTime.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration")) < DateTime.UtcNow Then 'Blob is old
+                                ThisBlob.Delete()
+                            End If
                         End If
                     Next
                 End If
