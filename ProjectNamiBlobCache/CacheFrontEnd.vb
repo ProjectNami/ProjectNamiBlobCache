@@ -9,7 +9,6 @@ Imports System.Linq
 Imports Microsoft.WindowsAzure
 Imports Microsoft.WindowsAzure.Storage
 Imports Microsoft.WindowsAzure.Storage.Blob
-Imports System.Threading
 Imports Newtonsoft.Json
 
 Public Class CacheFrontEnd
@@ -88,11 +87,6 @@ Public Class CacheFrontEnd
 
             'Record the start time of cache operations
             CacheStartDT = DateTime.Now
-
-            'Randomized cleanup function
-            If CInt(Math.Ceiling(Rnd() * 200)) = 42 Then
-                System.Threading.ThreadPool.QueueUserWorkItem(AddressOf ContainerCleanUp)
-            End If
 
             'Set up connection to the cache
             Dim ThisStorageAccount As CloudStorageAccount = CloudStorageAccount.Parse("DefaultEndpointsProtocol=http;AccountName=" & System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageAccount") & ";AccountKey=" & System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageKey"))
@@ -190,7 +184,7 @@ Public Class CacheFrontEnd
                 Dim CacheRemaining As TimeSpan = LastModified.UtcDateTime.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration")) - DateTime.UtcNow
                 app.Context.Response.Cache.SetCacheability(HttpCacheability.Public)
                 'app.Context.Response.Cache.SetMaxAge(CacheRemaining)
-                app.Context.Response.Cache.SetMaxAge(New TimeSpan(0, 1, 0))
+                app.Context.Response.Cache.SetMaxAge(New TimeSpan(0, 5, 0))
 
                 'Set 200 status, MIME type, and write the blob contents to the response
                 app.Context.Response.StatusCode = 200
@@ -246,47 +240,6 @@ Public Class CacheFrontEnd
             Return False
         End If
     End Function
-
-    Sub ContainerCleanUp(state As Object)
-        Try
-            'Set up connection to the cache
-            Dim ThisStorageAccount As CloudStorageAccount = CloudStorageAccount.Parse("DefaultEndpointsProtocol=http;AccountName=" & System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageAccount") & ";AccountKey=" & System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageKey"))
-            Dim ThisBlobClient As CloudBlobClient = ThisStorageAccount.CreateCloudBlobClient
-            Dim ThisContainer As CloudBlobContainer = ThisBlobClient.GetContainerReference(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageContainer"))
-            Dim LogBlob As CloudBlockBlob
-
-            Try
-                LogBlob = ThisContainer.GetBlockBlobReference("LastCleanup")
-
-                'Fetch metadata for the blob.  If fails, the blob is not present
-                Try
-                    LogBlob.FetchAttributes()
-                Catch ex As Exception
-                    LogBlob.UploadText("")
-                    LogBlob.FetchAttributes()
-                End Try
-
-                Dim LastModified As DateTimeOffset = LogBlob.Properties.LastModified
-                If LastModified.UtcDateTime.AddHours(1) < DateTime.UtcNow Then 'Cleanup needed
-                    For Each ThisBlob As CloudBlockBlob In ThisContainer.ListBlobs
-                        If Not ThisBlob.Name = "LastCleanup" Then
-                            ThisBlob.FetchAttributes()
-                            Dim ThisModified As DateTimeOffset = ThisBlob.Properties.LastModified
-                            If LastModified.UtcDateTime.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration")) < DateTime.UtcNow Then 'Blob is old
-                                ThisBlob.Delete()
-                            End If
-                        End If
-                    Next
-                End If
-
-            Catch ex As Exception
-                Exit Sub
-            End Try
-
-        Catch ex As Exception
-            'Do Nothing
-        End Try
-    End Sub
 
     Sub HandleCacheMiss(ByRef app As HttpApplication)
         'Set 200 status, MIME type, and write the blob contents to the response
