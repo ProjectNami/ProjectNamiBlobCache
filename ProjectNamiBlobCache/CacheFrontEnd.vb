@@ -36,173 +36,177 @@ Public Class CacheFrontEnd
     Public Sub OnCacheRequest(ByVal s As Object, ByVal e As EventArgs)
         Dim app As HttpApplication = CType(s, HttpApplication)
 
-        'Only execute if the request is for a PHP file
-        If app.Context.Request.Url.GetLeftPart(UriPartial.Path).EndsWith(".php") Then
-            'Test for Cache Loader
-            If Not IsNothing(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.BypassKey")) Then
-                If app.Context.Request.UserAgent.ToLower.Contains(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.BypassKey").ToLower) Then
-                    Exit Sub
-                End If
-            End If
-
-            'Test for Not Cached
-            If IsNotCached(app.Context.Request.Url.ToString.ToLower) Then
-                Exit Sub
-            End If
-
-            'Construct URL in the same manner as the Project Nami (WordPress) Plugin
-            Dim URL As String = ""
-            Dim scheme As String = ""
-            If app.Context.Request.IsSecureConnection Then
-                scheme = "https://"
-            Else
-                scheme = "http://"
-            End If
-            URL = scheme & app.Context.Request.ServerVariables("HTTP_HOST") & app.Context.Request.ServerVariables("REQUEST_URI")
-            Dim NewURI As New Uri(URL)
-            URL = NewURI.GetLeftPart(UriPartial.Query)
-
-            'Determine if the User Agent is available
-            If Not IsNothing(app.Context.Request.ServerVariables("HTTP_USER_AGENT")) Then
-                'If Project Nami (WordPress) thinks this is a mobile device, salt the URL to generate a different key
-                If wp_is_mobile(app.Context.Request.ServerVariables("HTTP_USER_AGENT")) Then
-                    URL &= "|mobile"
-                End If
-            End If
-
-
-            'Generate key based on the URL via MD5 hash
-            Dim MD5Hash As String = getMD5Hash(URL)
-
-            'Check cookies and abort if either user is logged in or the Project Nami (WordPress) Plugin has set a commenter cookie on this user for this page
-            If Not IsNothing(app.Context.Request.Cookies) Then
-                For Each ThisCookie As String In app.Context.Request.Cookies.AllKeys
-                    If Not IsNothing(ThisCookie) Then
-                        If ThisCookie.ToLower.Contains("wordpress_logged_in") Or ThisCookie.ToLower.Contains("comment_post_key_" & MD5Hash.ToLower) Then
-                            Exit Sub
-                        End If
-                    End If
-                Next
-            End If
-
-            'Record the start time of cache operations
-            CacheStartDT = DateTime.Now
-
-            'Set up connection to the cache
-            Dim ThisStorageAccount As CloudStorageAccount = CloudStorageAccount.Parse("DefaultEndpointsProtocol=http;AccountName=" & System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageAccount") & ";AccountKey=" & System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageKey"))
-            Dim ThisBlobClient As CloudBlobClient = ThisStorageAccount.CreateCloudBlobClient
-            Dim ThisContainer As CloudBlobContainer = ThisBlobClient.GetContainerReference(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageContainer"))
-            Dim ThisBlob As CloudBlockBlob
-
-            'Attempt to access the blob
-            Try
-                ThisBlob = ThisContainer.GetBlockBlobReference(MD5Hash)
-            Catch ex As Exception
-                Exit Sub
-            End Try
-
-            'Fetch metadata for the blob.  If fails, the blob is not present
-            Try
-                ThisBlob.FetchAttributes()
-            Catch ex As Exception
-                Exit Sub
-            End Try
-
-            'Check the TTL of the blob and delete it if it has expired
-            Dim LastModified As DateTimeOffset = ThisBlob.Properties.LastModified
-            If LastModified.UtcDateTime.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration")) < DateTime.UtcNow Then 'Cache has expired
-                ThisBlob.Delete()
-                Exit Sub
-            Else
-                'Determine if Proactive mode is enabled
-                If Not IsNothing(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.Proactive")) Then
-                    If System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.Proactive") = "1" Then
-                        'Determine if the blob will expire within the next 20% of its total TTL
-                        If LastModified.UtcDateTime.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration")) < DateTime.UtcNow.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration") * 0.2) Then 'Extend the cache duration and let the current request through
-                            'Update blob metadata to reset the LastModifiedUtc and allow this request through in an attempt to reseed the cache
-                            ThisBlob.Metadata("Projectnamicacheduration") = ThisBlob.Metadata("Projectnamicacheduration") - 1
-                            ThisBlob.SetMetadata()
-                            Exit Sub
-                        End If
+        Try
+            'Only execute if the request is for a PHP file
+            If app.Context.Request.Url.GetLeftPart(UriPartial.Path).EndsWith(".php") Then
+                'Test for Cache Loader
+                If Not IsNothing(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.BypassKey")) Then
+                    If app.Context.Request.UserAgent.ToLower.Contains(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.BypassKey").ToLower) Then
+                        Exit Sub
                     End If
                 End If
 
-                'Check Last Modified
-                If Not IsNothing(app.Request.Headers("If-Modified-Since")) Then
-                    Dim ClientLastModified As DateTime
-                    If DateTime.TryParse(app.Request.Headers("If-Modified-Since"), ClientLastModified) Then
-                        If ClientLastModified.ToUniversalTime >= LastModified.UtcDateTime Then
-                            'Set 304 status (not modified) and abort
-                            app.Context.Response.StatusCode = 304
-                            app.Context.Response.SuppressContent = True
-                            app.CompleteRequest()
-                            Exit Sub
-                        End If
-                    End If
-                End If
-
-                'If we've gotten this far, then we both have something to serve from cache and need to serve it, so get it from blob storage
-                Dim CacheString As String = ThisBlob.DownloadText()
-
-                'If the blob is empty, delete it
-                If CacheString.Trim.Length = 0 Then
-                    ThisBlob.Delete()
+                'Test for Not Cached
+                If IsNotCached(app.Context.Request.Url.ToString.ToLower) Then
                     Exit Sub
                 End If
 
-                'Record the end time of cache operations
-                CacheEndDT = DateTime.Now
+                'Construct URL in the same manner as the Project Nami (WordPress) Plugin
+                Dim URL As String = ""
+                Dim scheme As String = ""
+                If app.Context.Request.IsSecureConnection Then
+                    scheme = "https://"
+                Else
+                    scheme = "http://"
+                End If
+                URL = scheme & app.Context.Request.ServerVariables("HTTP_HOST") & app.Context.Request.ServerVariables("REQUEST_URI")
+                Dim NewURI As New Uri(URL)
+                URL = NewURI.GetLeftPart(UriPartial.Query)
 
-                'Determine if Debug mode is enabled
-                If Not IsNothing(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.Debug")) Then
-                    If System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.Debug") = "1" Then
-                        'Calculate the milliseconds spent until cache operations began, and until completion
-                        Dim CacheStartTS As TimeSpan = CacheStartDT - StartDT
-                        Dim CacheEndTS As TimeSpan = CacheEndDT - StartDT
-                        'Insert debug data before the closing HEAD tag
-                        CacheString = CacheString.Replace("<" & Chr(47) & "head>", "<!-- CacheStart " & CacheStartTS.TotalMilliseconds & " CacheEnd " & CacheEndTS.TotalMilliseconds & " -->" & vbCrLf & "<!-- Key " & MD5Hash & " ServerVar " & URL & " Rewrite " & app.Context.Request.Url.GetLeftPart(UriPartial.Query) & " -->" & vbCrLf & "<" & Chr(47) & "head>")
+                'Determine if the User Agent is available
+                If Not IsNothing(app.Context.Request.ServerVariables("HTTP_USER_AGENT")) Then
+                    'If Project Nami (WordPress) thinks this is a mobile device, salt the URL to generate a different key
+                    If wp_is_mobile(app.Context.Request.ServerVariables("HTTP_USER_AGENT")) Then
+                        URL &= "|mobile"
                     End If
                 End If
 
-                'Check for headers in metadata, write them if they exist
-                If ThisBlob.Metadata.ContainsKey("Headers") Then
-                    Dim Headers = JsonConvert.DeserializeObject(Of List(Of HeaderObject))(ThisBlob.Metadata("Headers"))
-                    For Each ThisHeader As HeaderObject In Headers
-                        If ThisHeader.name.ToLower = "content-type" Then
-                            app.Context.Response.ContentType = ThisHeader.value
-                            ContentTypeFound = True
-                        Else
-                            app.Context.Response.Headers.Add(ThisHeader.name, ThisHeader.value)
+
+                'Generate key based on the URL via MD5 hash
+                Dim MD5Hash As String = getMD5Hash(URL)
+
+                'Check cookies and abort if either user is logged in or the Project Nami (WordPress) Plugin has set a commenter cookie on this user for this page
+                If Not IsNothing(app.Context.Request.Cookies) Then
+                    For Each ThisCookie As String In app.Context.Request.Cookies.AllKeys
+                        If Not IsNothing(ThisCookie) Then
+                            If ThisCookie.ToLower.Contains("wordpress_logged_in") Or ThisCookie.ToLower.Contains("comment_post_key_" & MD5Hash.ToLower) Then
+                                Exit Sub
+                            End If
                         End If
                     Next
                 End If
 
-                'Set last-modified
-                app.Context.Response.Cache.SetLastModified(LastModified.UtcDateTime)
+                'Record the start time of cache operations
+                CacheStartDT = DateTime.Now
 
-                'Set cache control max age to match remaining cache duration
-                Dim CacheRemaining As TimeSpan = LastModified.UtcDateTime.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration")) - DateTime.UtcNow
-                app.Context.Response.Cache.SetCacheability(HttpCacheability.Public)
-                'app.Context.Response.Cache.SetMaxAge(CacheRemaining)
-                app.Context.Response.Cache.SetMaxAge(New TimeSpan(0, 5, 0))
+                'Set up connection to the cache
+                Dim ThisStorageAccount As CloudStorageAccount = CloudStorageAccount.Parse("DefaultEndpointsProtocol=http;AccountName=" & System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageAccount") & ";AccountKey=" & System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageKey"))
+                Dim ThisBlobClient As CloudBlobClient = ThisStorageAccount.CreateCloudBlobClient
+                Dim ThisContainer As CloudBlobContainer = ThisBlobClient.GetContainerReference(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageContainer"))
+                Dim ThisBlob As CloudBlockBlob
 
-                'Set 200 status, MIME type, and write the blob contents to the response
-                app.Context.Response.StatusCode = 200
-                app.Context.Response.Write(CacheString)
-                If ContentTypeFound = False Then 'Attempt to detect content type if it was not found in the headers
-                    If app.Context.Request.ServerVariables("REQUEST_URI").ToLower.EndsWith(".xml") Or CacheString.ToLower.StartsWith("<?xml") Then
-                        app.Context.Response.ContentType = "application/xml"
-                    ElseIf app.Context.Request.ServerVariables("REQUEST_URI").ToLower.EndsWith(".json") Or (CacheString.ToLower.StartsWith("{") And CacheString.ToLower.EndsWith("}")) Then
-                        app.Context.Response.ContentType = "application/json"
-                    Else
-                        app.Context.Response.ContentType = "text/html"
+                'Attempt to access the blob
+                Try
+                    ThisBlob = ThisContainer.GetBlockBlobReference(MD5Hash)
+                Catch ex As Exception
+                    Exit Sub
+                End Try
+
+                'Fetch metadata for the blob.  If fails, the blob is not present
+                Try
+                    ThisBlob.FetchAttributes()
+                Catch ex As Exception
+                    Exit Sub
+                End Try
+
+                'Check the TTL of the blob and delete it if it has expired
+                Dim LastModified As DateTimeOffset = ThisBlob.Properties.LastModified
+                If LastModified.UtcDateTime.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration")) < DateTime.UtcNow Then 'Cache has expired
+                    ThisBlob.Delete()
+                    Exit Sub
+                Else
+                    'Determine if Proactive mode is enabled
+                    If Not IsNothing(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.Proactive")) Then
+                        If System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.Proactive") = "1" Then
+                            'Determine if the blob will expire within the next 20% of its total TTL
+                            If LastModified.UtcDateTime.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration")) < DateTime.UtcNow.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration") * 0.2) Then 'Extend the cache duration and let the current request through
+                                'Update blob metadata to reset the LastModifiedUtc and allow this request through in an attempt to reseed the cache
+                                ThisBlob.Metadata("Projectnamicacheduration") = ThisBlob.Metadata("Projectnamicacheduration") - 1
+                                ThisBlob.SetMetadata()
+                                Exit Sub
+                            End If
+                        End If
                     End If
-                End If
 
-                'Notify IIS we are done and to abort further operations
-                app.CompleteRequest()
+                    'Check Last Modified
+                    If Not IsNothing(app.Request.Headers("If-Modified-Since")) Then
+                        Dim ClientLastModified As DateTime
+                        If DateTime.TryParse(app.Request.Headers("If-Modified-Since"), ClientLastModified) Then
+                            If ClientLastModified.ToUniversalTime >= LastModified.UtcDateTime Then
+                                'Set 304 status (not modified) and abort
+                                app.Context.Response.StatusCode = 304
+                                app.Context.Response.SuppressContent = True
+                                app.CompleteRequest()
+                                Exit Sub
+                            End If
+                        End If
+                    End If
+
+                    'If we've gotten this far, then we both have something to serve from cache and need to serve it, so get it from blob storage
+                    Dim CacheString As String = ThisBlob.DownloadText()
+
+                    'If the blob is empty, delete it
+                    If CacheString.Trim.Length = 0 Then
+                        ThisBlob.Delete()
+                        Exit Sub
+                    End If
+
+                    'Record the end time of cache operations
+                    CacheEndDT = DateTime.Now
+
+                    'Determine if Debug mode is enabled
+                    If Not IsNothing(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.Debug")) Then
+                        If System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.Debug") = "1" Then
+                            'Calculate the milliseconds spent until cache operations began, and until completion
+                            Dim CacheStartTS As TimeSpan = CacheStartDT - StartDT
+                            Dim CacheEndTS As TimeSpan = CacheEndDT - StartDT
+                            'Insert debug data before the closing HEAD tag
+                            CacheString = CacheString.Replace("<" & Chr(47) & "head>", "<!-- CacheStart " & CacheStartTS.TotalMilliseconds & " CacheEnd " & CacheEndTS.TotalMilliseconds & " -->" & vbCrLf & "<!-- Key " & MD5Hash & " ServerVar " & URL & " Rewrite " & app.Context.Request.Url.GetLeftPart(UriPartial.Query) & " -->" & vbCrLf & "<" & Chr(47) & "head>")
+                        End If
+                    End If
+
+                    'Check for headers in metadata, write them if they exist
+                    If ThisBlob.Metadata.ContainsKey("Headers") Then
+                        Dim Headers = JsonConvert.DeserializeObject(Of List(Of HeaderObject))(ThisBlob.Metadata("Headers"))
+                        For Each ThisHeader As HeaderObject In Headers
+                            If ThisHeader.name.ToLower = "content-type" Then
+                                app.Context.Response.ContentType = ThisHeader.value
+                                ContentTypeFound = True
+                            Else
+                                app.Context.Response.Headers.Add(ThisHeader.name, ThisHeader.value)
+                            End If
+                        Next
+                    End If
+
+                    'Set last-modified
+                    app.Context.Response.Cache.SetLastModified(LastModified.UtcDateTime)
+
+                    'Set cache control max age to match remaining cache duration
+                    Dim CacheRemaining As TimeSpan = LastModified.UtcDateTime.AddSeconds(ThisBlob.Metadata("Projectnamicacheduration")) - DateTime.UtcNow
+                    app.Context.Response.Cache.SetCacheability(HttpCacheability.Public)
+                    'app.Context.Response.Cache.SetMaxAge(CacheRemaining)
+                    app.Context.Response.Cache.SetMaxAge(New TimeSpan(0, 5, 0))
+
+                    'Set 200 status, MIME type, and write the blob contents to the response
+                    app.Context.Response.StatusCode = 200
+                    app.Context.Response.Write(CacheString)
+                    If ContentTypeFound = False Then 'Attempt to detect content type if it was not found in the headers
+                        If app.Context.Request.ServerVariables("REQUEST_URI").ToLower.EndsWith(".xml") Or CacheString.ToLower.StartsWith("<?xml") Then
+                            app.Context.Response.ContentType = "application/xml"
+                        ElseIf app.Context.Request.ServerVariables("REQUEST_URI").ToLower.EndsWith(".json") Or (CacheString.ToLower.StartsWith("{") And CacheString.ToLower.EndsWith("}")) Then
+                            app.Context.Response.ContentType = "application/json"
+                        Else
+                            app.Context.Response.ContentType = "text/html"
+                        End If
+                    End If
+
+                    'Notify IIS we are done and to abort further operations
+                    app.CompleteRequest()
+                End If
             End If
-        End If
+        Catch ex As Exception
+
+        End Try
     End Sub
 
     Function getMD5Hash(ThisString As String) As String
