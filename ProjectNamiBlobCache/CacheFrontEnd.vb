@@ -46,6 +46,11 @@ Public Class CacheFrontEnd
                     End If
                 End If
 
+                'Test for POST
+                If app.Context.Request.HttpMethod.ToLower.Equals("post") Then
+                    Exit Sub
+                End If
+
                 'Test for Not Cached
                 If IsNotCached(app.Context.Request.Url.ToString.ToLower) Then
                     Exit Sub
