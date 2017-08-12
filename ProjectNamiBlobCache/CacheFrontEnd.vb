@@ -71,9 +71,9 @@ Public Class CacheFrontEnd
                 'Determine if the User Agent is available
                 If Not IsNothing(app.Context.Request.ServerVariables("HTTP_USER_AGENT")) Then
                     'If Project Nami (WordPress) thinks this is a mobile device, salt the URL to generate a different key
-                    If wp_is_mobile(app.Context.Request.ServerVariables("HTTP_USER_AGENT")) Then
-                        URL &= "|mobile"
-                    End If
+                    'If wp_is_mobile(app.Context.Request.ServerVariables("HTTP_USER_AGENT")) Then
+                    '    URL &= "|mobile"
+                    'End If
                 End If
 
 
@@ -226,18 +226,18 @@ Public Class CacheFrontEnd
         Return (StrResult)
     End Function
 
-    Function wp_is_mobile(UserAgent As String) As Boolean
-        'List of mobile User Agent lookups from Project Nami (WordPress) vars.php
-        Dim MobileAgents() As String = {"Mobile", "Android", "Silk/", "Kindle", "BlackBerry", "Opera Mini", "Opera Mobi"}
+    'Function wp_is_mobile(UserAgent As String) As Boolean
+    '    'List of mobile User Agent lookups from Project Nami (WordPress) vars.php
+    '    Dim MobileAgents() As String = {"Mobile", "Android", "Silk/", "Kindle", "BlackBerry", "Opera Mini", "Opera Mobi"}
 
-        'If the User Agent contains any of the array elements, return True
-        If MobileAgents.Any(Function(str) UserAgent.Contains(str)) Then
-            Return True
-        Else
-            Return False
-        End If
+    '    'If the User Agent contains any of the array elements, return True
+    '    If MobileAgents.Any(Function(str) UserAgent.Contains(str)) Then
+    '        Return True
+    '    Else
+    '        Return False
+    '    End If
 
-    End Function
+    'End Function
 
     Function IsNotCached(url As String) As Boolean
         'List of URL parts which will never be cached
