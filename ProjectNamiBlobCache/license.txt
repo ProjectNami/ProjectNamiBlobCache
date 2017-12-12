@@ -2,7 +2,7 @@
 to an Azure Storage account by Project Nami Blob Cache and serves
 it to end users.
 
-Copyright 2013 - 2015 by Patrick Bates, Spencer Cameron-Morin
+Copyright 2013 - 2017 by Patrick Bates, Spencer Cameron-Morin
 patrick@projectnami.org
 http://projectnami.org
 
