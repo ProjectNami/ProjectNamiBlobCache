@@ -10,7 +10,6 @@ Imports Microsoft.WindowsAzure
 Imports Microsoft.WindowsAzure.Storage
 Imports Microsoft.WindowsAzure.Storage.Blob
 Imports Newtonsoft.Json
-Imports Microsoft.WindowsAzure.Storage.Auth
 
 Public Class CacheFrontEnd
     Implements IHttpModule
@@ -96,13 +95,7 @@ Public Class CacheFrontEnd
                 CacheStartDT = DateTime.Now
 
                 'Set up connection to the cache
-                Dim ThisStorageCredential As StorageCredentials = New StorageCredentials(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageAccount"), System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageKey"))
-                Dim ThisStorageAccount As CloudStorageAccount
-                If Not IsNothing(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageSuffix")) Then
-                    ThisStorageAccount = New CloudStorageAccount(ThisStorageCredential, System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageSuffix"), True)
-                Else
-                    ThisStorageAccount = New CloudStorageAccount(ThisStorageCredential, True)
-                End If
+                Dim ThisStorageAccount As CloudStorageAccount = CloudStorageAccount.Parse("DefaultEndpointsProtocol=http;AccountName=" & System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageAccount") & ";AccountKey=" & System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageKey"))
                 Dim ThisBlobClient As CloudBlobClient = ThisStorageAccount.CreateCloudBlobClient
                 Dim ThisContainer As CloudBlobContainer = ThisBlobClient.GetContainerReference(System.Configuration.ConfigurationManager.AppSettings("ProjectNamiBlobCache.StorageContainer"))
                 Dim ThisBlob As CloudBlockBlob
