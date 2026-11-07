@@ -187,3 +187,6 @@ FakesAssemblies/
 GeneratedArtifacts/
 _Pvt_Extensions/
 ModelManifest.xml
+/.vs/ProjectNamiBlobCache/v15/Server/sqlite3
+/.vs/ProjectSettings.json
+/.vs/VSWorkspaceState.json
